@@ -73,7 +73,7 @@ const timer_template = `<div class="timer" id="timer-{{id}}-{{count}}">
 <progress value="0" max="4200"></progress><span>0</span>${show_localtime ? '<span>0</span>' : ''}
 </div>`
 
-const alarm_template = `<div class="alarm_block" id="{{id}}" title="{{icon_title}}">
+const alarm_template = `<div class="alarm_block" id="{{id}}" title="{{icon_title}}" data-sec="99999999">
 <div class="item_info">
     <div>
         <img src="{{icon_url}}" alt="{{icon_title}}" title="{{icon_title}}" id="item-icon-{{id}}" />
@@ -88,7 +88,9 @@ const alarm_template = `<div class="alarm_block" id="{{id}}" title="{{icon_title
         <span>{{status}}</span>
         <a href="javascript:remove_alarm_id('{{id}}')">X</a>
     </div>
-    {{timers}}
+    <div class="timers">
+        {{timers}}
+    </div>
 </div>
 </div>`
 
@@ -121,23 +123,64 @@ function refresh_data(data) {
     json_data = data;
 }
 
+function resort_alarm() {
+    root = document.getElementById('main_root')
+    alarms = Array.from(root.children);
+    alarms_with_sec = [];
+    alarms.forEach(alarm => {
+        alarms_with_sec.push({
+            sec: Number(alarm.getAttribute('data-sec')),
+            node: alarm
+        });
+    });
+    alarms_with_sec.sort((a, b) => a.sec - b.sec);
+    i = 0;
+    changed = false;
+    alarms_with_sec.forEach(n => {
+        if (alarms[i] != n.node) {
+            changed = true;
+            return;
+        }
+        i++;
+    })
+    if (!changed)
+        return;
+    root.innerHTML = '';
+    alarms_with_sec.forEach(n => root.appendChild(n.node));
+}
+
 function update_timer(id) {
-    var infos = timer_info[id];
-    var pgbars = document.getElementById(id).getElementsByClassName("timer");
-    var i = 0;
-    var show_up = false;
+    let infos = timer_info[id];
+    let root = document.getElementById(id);
+    let timers = root.getElementsByClassName("timers")[0];
+    let pgbars = root.getElementsByClassName("timer");
+    let i = 0;
+    let show_up = false;
     infos.forEach(info => {
-        var rest_second = Math.floor((info.time.getLocalTime() - Date.now()) / 1000);
+        let rest_second = Math.floor((info.time.getLocalTime() - Date.now()) / 1000);
         if (rest_second > 0) {
+            if (timer_info[id][i].status == "wait") {
+                pgbars[i].setAttribute("data-sec", rest_second);
+                if (rest_second < root.getAttribute('data-sec')) {
+                    root.setAttribute("data-sec", rest_second);
+                }
+            } else {
+                v = info.uptime / 60 * et_60min - rest_second;
+                pgbars[i].setAttribute("data-sec", -v);
+                if (-v < root.getAttribute('data-sec'))
+                    root.setAttribute("data-sec", -v);
+            }
+
             pgbars[i].getElementsByTagName('progress')[0].value = pgbars[i].getElementsByTagName('progress')[0].max - rest_second;
             pgbars[i].getElementsByTagName('span')[0].innerText = `${(rest_second - (rest_second % 60)) / 60 < 10 ? '0' : ''}${(rest_second - (rest_second % 60)) / 60}:${rest_second % 60 < 10 ? '0' : ''}${rest_second % 60}`
             if (show_localtime)
                 pgbars[i].getElementsByTagName('span')[1].innerText = `${info.time.getLocalTime().getHours() < 10 ? '0' : ''}${info.time.getLocalTime().getHours()}:${info.time.getLocalTime().getMinutes() < 10 ? '0' : ''}${info.time.getLocalTime().getMinutes()}`
         } else {
             // console.log(infos);
+            root.setAttribute("data-sec", 999999999);
             timer_info[id][i].time = new EorzeaClock().nextHour(info.time.getHours() + info.uptime / 60);
             timer_info[id][i].status = timer_info[id][i].status == "wait" ? "show" : "wait";
-            status_node = document.getElementById(id).getElementsByClassName("details")[0].getElementsByTagName("span")[2];
+            status_node = root.getElementsByClassName("details")[0].getElementsByTagName("span")[2];
             if (timer_info[id][i].status == "wait") {
                 timer_info[id][i].time = new EorzeaClock().nextHour(info.show_time);
                 if (!show_up) {
@@ -166,6 +209,8 @@ function update_timer(id) {
         }
         i++;
     });
+
+    resort_alarm();
 }
 
 function set_icon(ele_id, img_src) {
